@@ -168,7 +168,8 @@ function mapRule(rule, ruleProviderMap) {
     const type = String(rule.type || '').toUpperCase();
     if (!type) return null;
     if (type === 'MATCH' || type === 'FINAL') return `MATCH,${rule.policy}`;
-    if (type === 'GEOIP') return `GEOIP,${rule.value || 'CN'},${rule.policy}`;
+    const ruleExtra = Array.isArray(rule.extras) && rule.extras.length ? `,${rule.extras.join(',')}` : '';
+    if (type === 'GEOIP') return `GEOIP,${rule.value || 'CN'},${rule.policy}${ruleExtra}`;
     if (type === 'RULE-SET') {
         const providerName = ruleProviderMap.get(rule.value);
         return `RULE-SET,${providerName || rule.value},${rule.policy}`;
@@ -273,6 +274,32 @@ export function renderClashFromTemplateModel(model) {
         profile: {
             'store-selected': true,
             'subscription-url': normalizedModel.settings.managedConfigUrl || '',
+        },
+        sniffer: {
+            enable: true,
+            'parse-pure-ip': true,
+            'force-dns-mapping': true,
+            'override-destination': false,
+            sniff: {
+                TLS: { ports: [443, 8443] },
+                HTTP: { ports: [80, '8080-8880'], 'override-destination': true },
+                QUIC: { ports: [443, 8443] },
+            },
+            'skip-domain': ['+.push.apple.com'],
+            'skip-dst-address': [
+                '91.105.192.0/23',
+                '91.108.4.0/22',
+                '91.108.8.0/21',
+                '91.108.16.0/21',
+                '91.108.56.0/22',
+                '95.161.64.0/20',
+                '149.154.160.0/20',
+                '185.76.151.0/24',
+                '2001:67c:4e8::/48',
+                '2001:b28:f23c::/47',
+                '2001:b28:f23f::/48',
+                '2a0a:f280:203::/48',
+            ],
         },
     };
 
