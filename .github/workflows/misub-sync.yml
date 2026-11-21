@@ -1,0 +1,78 @@
+name: MiSub 同步上游 + 应用本地补丁
+
+# 本 workflow 取代 fork 上游自带的两个同步任务（二者均已手动禁用）：
+#   · fork-sync.yml      —— git reset --hard + force push，会删除本地文件
+#   · sync-upstream.yml  —— 只做 merge，不处理补丁
+#
+# 设计要点：
+#   1. 每次运行先 reset 到 upstream/main，再重新应用 patches/*.patch。
+#      补丁不作为 commit 长期保留，避免上游改同一行时产生 merge 冲突。
+#   2. reset 会连带删除 patches/ 与 scripts/，所以要从 PREV 提交里恢复。
+#   3. 补丁冲突时 apply-patches.mjs 非零退出 → 本 job 失败 → 不推送，
+#      线上保持上一个可用版本。
+#   4. commit --allow-empty 保证每天都有 push，从而每天都有 Pages 构建
+#      （上游静默期也能重建）。
+
+on:
+  schedule:
+    - cron: '10 0 * * *'        # UTC 00:10 = 北京 08:10
+  workflow_dispatch:
+  push:
+    paths:
+      - 'patches/**'
+      - 'scripts/apply-patches.mjs'
+      - '.github/workflows/misub-sync.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: misub-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: 同步上游 + 重新应用补丁
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          PREV="$(git rev-parse HEAD)"
+          git remote add upstream https://github.com/imzyb/MiSub.git 2>/dev/null || true
+          git fetch --prune upstream main
+          UP="$(git rev-parse upstream/main)"
+          echo "prev=$PREV"
+          echo "upstream=$UP"
+
+          # 1) 树对齐上游
+          git reset --hard "$UP"
+
+          # 2) 恢复补丁基础设施（reset 会把它们删掉）
+          git checkout "$PREV" -- patches scripts/apply-patches.mjs .github/workflows/misub-sync.yml 2>/dev/null || true
+
+          # 3) 重新应用补丁（幂等；冲突则非零退出）
+          node scripts/apply-patches.mjs
+
+          # 4) 提交并强推
+          git add -A
+          git commit --allow-empty -m "chore: upstream ${UP:0:7} + local patches"
+          git push --force-with-lease origin main
+
+      - name: 摘要
+        if: always()
+        run: |
+          echo "### 补丁状态" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          ls -1 patches/*.patch 2>/dev/null || echo "(no patches)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          git log -1 --pretty='%h %s' >> "$GITHUB_STEP_SUMMARY" || true
