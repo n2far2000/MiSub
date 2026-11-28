@@ -170,7 +170,8 @@ function mapRule(rule, ruleProviderMap) {
     const type = String(rule.type || '').toUpperCase();
     if (!type) return null;
     if (type === 'MATCH' || type === 'FINAL') return `MATCH,${rule.policy}`;
-    if (type === 'GEOIP') return `GEOIP,${rule.value || 'CN'},${rule.policy}`;
+    const ruleExtra = Array.isArray(rule.extras) && rule.extras.length ? `,${rule.extras.join(',')}` : '';
+    if (type === 'GEOIP') return `GEOIP,${rule.value || 'CN'},${rule.policy}${ruleExtra}`;
     if (type === 'RULE-SET') {
         const providerName = ruleProviderMap.get(rule.value);
         return `RULE-SET,${providerName || rule.value},${rule.policy}`;
